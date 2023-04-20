@@ -36,6 +36,57 @@ class Conversation {
     return ret;
   }
 
+  /**
+   * Get prompt arrays that has not been fed as input
+   *
+   * @returns The prompt array.
+   */
+  getPromptArrayUnproccessed() {
+    if (this.seps.length == 0) {
+      throw Error("Need seps to work")
+    }
+    if (this.messages.length < 3) {
+      throw Error("needs to call getLastPromptArray for the first message");
+    }
+    let ret = [this.messages[this.messages.length-3][1] + this.seps[1]]
+    for (let i = this.messages.length-2; i < this.messages.length; ++i) {
+      const item = this.messages[i];
+      const role = item[0];
+      const message = item[1];
+      if (message !== undefined && message != "") {
+        ret.push(role + ": " + message + this.seps[i % this.seps.length]);
+      } else {
+        ret.push(role + ":");
+      }
+    }
+    return ret;
+    
+  }
+
+  /**
+   * Get last prompt array with prefix as system.
+   *
+   * @returns The prompt array.
+   */
+  getLastPromptArray() {
+    if (this.seps.length == 0) {
+      throw Error("Need seps to work")
+    }
+    let ret = [this.system + this.seps[0]];
+
+    for (let i = this.messages.length-2; i < this.messages.length; ++i) {
+      const item = this.messages[i];
+      const role = item[0];
+      const message = item[1];
+      if (message !== undefined && message != "") {
+        ret.push(role + ": " + message + this.seps[i % this.seps.length]);
+      } else {
+        ret.push(role + ":");
+      }
+    }
+    return ret;
+  }
+
   reset() {
     this.messages = [];
   }
@@ -120,6 +171,9 @@ class LLMChatPipeline {
     this.kvCache = this.tvm.detachFromCurrentScope(this.tvm.makeTVMArray(kvList));
     // fill with pad token
     this.logitsOnCPU = undefined;
+
+    this.ctxLengthInWindow = 0;
+    this.clearCache = true
   }
 
 
@@ -184,34 +238,44 @@ class LLMChatPipeline {
 
   async getInputTokens() {
     const tokens = [this.bosTokenId];
-    const prompts = this.conversation.getPromptArray();
+    let prompts = ""
+    if (this.conversation.messages.length <= 2) {
+      prompts = this.conversation.getLastPromptArray();
+    } else {
+      prompts = this.conversation.getPromptArrayUnproccessed();
+    }
     tokens.push(...await this.tokenizer.encodeIds(prompts[0]));
-
+    this.logger("prompts:", prompts)
+    this.logger(tokens)
     let ctxLength = tokens.length;
     const context = [];
+    let need_shift_window = false;
     for (let i = prompts.length - 1; i > 0; --i) {
       const encoded = this.tokenizer.encodeIds(prompts[i]);
       ctxLength += encoded.length;
-      if (ctxLength + this.meanGenLength >= this.maxWindowLength && i + 2 < prompts.length) {
-        this.logger("Shift window at " + i);
-        break;
+      if (this.ctxLengthInWindow+ctxLength + this.meanGenLength >= this.maxWindowLength) {
+        need_shift_window = true;
       }
       context.unshift(encoded);
     }
-    const followMessage = [];
-    for (const ctx of context) {
-      followMessage.push(...ctx);
-    }
-
-    if (followMessage.length + tokens.length + this.meanGenLength >= this.maxWindowLength) {
-      const maxMsgLen = this.maxWindowLength - tokens.length - this.meanGenLength;
-      if (maxMsgLen < this.meanGenLength) {
-        throw Error("Too small window config tokens.length=" + tokens.length);
+    this.ctxLengthInWindow += ctxLength;
+    if (need_shift_window) {
+      this.logger("need shift window")
+      this.ctxLengthInWindow = tokens.length;
+      context = [];
+      let lastprompt = this.conversation.getLastPromptArray();
+      for (let i = 0; i < lastprompt; ++i) {
+        const encoded = this.tokenizer.encodeIds(lastprompt[i]);
+        this.ctxLengthInWindow += encoded.length;
+        context.push(encoded);
       }
-      this.logger("Slice message " + followMessage.length + " to " + maxMsgLen);
-      followMessage = followMessage.slice(followMessage.length - maxMsgLen);
+      this.clearCache = true;
     }
-    tokens.push(...followMessage);
+    this.logger("context:", context)
+    for (const ctx of context) {
+      tokens.push(...ctx);
+    }
+    this.logger(tokens)
     if (tokens.length + this.meanGenLength >= this.maxWindowLength) {
       throw Error("Exceed max window length curr=" + tokens.length);
     }
@@ -232,10 +296,14 @@ class LLMChatPipeline {
     this.conversation.appendMessage(this.conversation.roles[1], "");
     const stopStr = this.conversation.getStopStr();
     const tokens = await this.getInputTokens();
+    this.logger(tokens);
     const inputTokenLength = tokens.length;
 
     var outputPrompt = "";
-    this.#clearKVCache();
+    if (this.clearCache) {
+      this.#clearKVCache();
+      this.clearCache = false;
+    }
     const maxGenLen = Math.min(this.maxGenLength, this.maxWindowLength - tokens.length);
     if (maxGenLen < this.meanGenLength) {
       throw Error("Too small window size config");
@@ -244,7 +312,6 @@ class LLMChatPipeline {
     for (let step = 0; step < maxGenLen; ++step) {
       this.tvm.beginScope();
       var inputData;
-
       let tstart = performance.now();
       if (step == 0) {
         inputData = this.tvm.empty([1, tokens.length], "int32", this.device);
@@ -254,7 +321,7 @@ class LLMChatPipeline {
         inputData.copyFrom(tokens.slice(tokens.length - 1));
       }
       const logits = this.tvm.detachFromCurrentScope(
-        this.#forward(inputData, inputTokenLength + step)
+        this.#forward(inputData, this.ctxLengthInWindow + step)
       );
       this.tvm.endScope();
 
