@@ -114,7 +114,6 @@ def chat(model_wrapper, args):
         conv.append_message(conv.roles[0], inp)
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt_unprocessed()
-        print("prompt:", prompt)
         print(f"{conv.roles[1]}: ", end="", flush=True)
         pre = 0
         for outputs in model_wrapper.generate(
@@ -154,17 +153,16 @@ def get_tvm_model(args):
 
         def __init__(self) -> None:
             self.kv_cache = None
-            self.kv_cache_length = 0
+            self.tot_seq_len = 0
             self.new_cache()
 
         def forward(
             self, inputs: torch.Tensor
         ) -> torch.Tensor:
             inputs = tvm.nd.array(inputs.numpy(), device=device)
-            self.kv_cache_length+=inputs.shape[1]
-            seq_len_shape = tvm.runtime.ShapeTuple([self.kv_cache_length])
+            self.tot_seq_len+=inputs.shape[1]
+            seq_len_shape = tvm.runtime.ShapeTuple([self.tot_seq_len])
             if inputs.shape[1] > 1:
-                print("kv_cache_length:", self.kv_cache_length)
                 logits, kv_cache = vm["encoding"](
                     inputs, seq_len_shape, self.kv_cache, const_params
                 )
