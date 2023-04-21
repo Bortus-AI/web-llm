@@ -48,7 +48,7 @@ class Conversation {
     if (this.messages.length < 3) {
       throw Error("needs to call getLastPromptArray for the first message");
     }
-    let ret = [this.messages[this.messages.length-3][1]+this.seps[this.seps.length - 1]];
+    let ret = [this.seps[this.seps.length - 1]];
     for (let i = this.messages.length-2; i < this.messages.length; ++i) {
       const item = this.messages[i];
       const role = item[0];
@@ -237,16 +237,15 @@ class LLMChatPipeline {
   }
 
   async getInputTokens() {
-    const tokens = [this.bosTokenId];
+    let tokens = [this.bosTokenId];
     let prompts = ""
     if (this.conversation.messages.length <= 2) {
-      prompts = this.conversation.getLastPromptArray();
+      prompts = this.conversation.getPromptArray();
     } else {
+      tokens.pop();
       prompts = this.conversation.getPromptArrayUnproccessed();
     }
     tokens.push(...await this.tokenizer.encodeIds(prompts[0]));
-    this.logger("prompts:", prompts)
-    this.logger(tokens)
     let ctxLength = tokens.length;
     let context = [];
     let need_shift_window = false;
@@ -259,23 +258,35 @@ class LLMChatPipeline {
       }
       context.unshift(encoded);
     }
-    if (need_shift_window) {
-      this.logger("need shift window")
-      this.kvCacheLength = 0;
-      context = [];
-      let lastprompt = this.conversation.getLastPromptArray();
-      for (let i = 0; i < lastprompt; ++i) {
-        const encoded = this.tokenizer.encodeIds(lastprompt[i]);
-        context.push(encoded);
+    if (!need_shift_window) {
+      for (const ctx of context) {
+        tokens.push(...ctx);
       }
-      this.clearCache = true;
+      return tokens;
     }
-    this.logger("context:", context)
+    // need shift window and re-encode
+    this.logger("need shift window")
+    this.kvCacheLength = 0;
+    this.clearCache = true;
+    // abandon all tokens we collected
+    tokens = [this.bosTokenId]
+    let all_prompts = this.conversation.getPromptArray();
+    tokens.push(...await this.tokenizer.encodeIds(all_prompts[0]));
+    context = [];
+    ctxLength = tokens.length;
+    //only keep 20% of the window context
+    const fill_factor = 0.2
+    for (let i = all_prompts.length - 1; i > 0; --i) {
+      const encoded = this.tokenizer.encodeIds(all_prompts[i]);
+      ctxLength += encoded.length;
+      if (ctxLength + this.meanGenLength >= fill_factor*this.maxWindowLength && i + 2 < all_prompts.length) {
+        break;
+      }
+      context.unshift(encoded);
+    }
     for (const ctx of context) {
       tokens.push(...ctx);
     }
-    this.logger("tokens", tokens)
-    this.logger("kvCacheLength:", this.kvCacheLength)
     if (tokens.length + this.meanGenLength >= this.maxWindowLength) {
       throw Error("Exceed max window length curr=" + tokens.length);
     }
@@ -296,7 +307,6 @@ class LLMChatPipeline {
     this.conversation.appendMessage(this.conversation.roles[1], "");
     const stopStr = this.conversation.getStopStr();
     const tokens = await this.getInputTokens();
-    this.logger(tokens);
     const inputTokenLength = tokens.length;
 
     var outputPrompt = "";

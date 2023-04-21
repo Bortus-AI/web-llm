@@ -46,9 +46,11 @@ class ModelWrapper:
         top_p: float = 0.95,
         stream_interval: int = 2,
         stop_str: str = None,
+        add_bos = True,
     ):
         prompt_tokens = self.tokenizer.encode(prompt)
-
+        if not add_bos:
+            prompt_tokens = prompt_tokens[1:]
         total_len = max_gen_len + len(prompt_tokens)
         tokens = torch.full((1, total_len), self.tokenizer.pad_token_id).to(
             torch.int32
@@ -102,6 +104,7 @@ def chat(model_wrapper, args):
 
     # Chat
     conv = conv_templates["vicuna_v1.1"].copy()
+    add_bos = True
     while True:
         try:
             inp = input(f"{conv.roles[0]}: ")
@@ -120,6 +123,7 @@ def chat(model_wrapper, args):
             prompt,
             args.max_gen_len,
             stop_str=conv.sep if conv.sep_style == SeparatorStyle.SINGLE else conv.sep2,
+            add_bos = add_bos,
         ):
             outputs = outputs[len(prompt) + 1 :].strip()
             outputs = outputs.split(" ")
@@ -130,6 +134,7 @@ def chat(model_wrapper, args):
         print(" ".join(outputs[pre:]), flush=True)
 
         conv.messages[-1][-1] = " ".join(outputs)
+        add_bos = False
         print("\n", {"prompt": prompt, "outputs": outputs}, "\n")
 
 
