@@ -369,10 +369,9 @@ def _make_causal_mask(input_ids_shape, dtype, src_len):
     diag_mask = nn.emit(broadcast_to(mask, (bsz, 1, tgt_len, tgt_len)))
     if src_len == tgt_len:
         return diag_mask
-    zero_mask = nn.emit(relax.op.zeros((bsz, 1, tgt_len, src_len-tgt_len), dtype=dtype))
-    def concat_te(x, y, tgt_len, src_len):
-        return te.compute((bsz, 1, tgt_len, src_len), lambda b, _, i, j: te.if_then_else(j < src_len - tgt_len, x[b, _, i, j], y[b, _, i, j - (src_len-tgt_len)]), name="concat_te")
-    return nn.emit_te(concat_te, zero_mask, diag_mask, tgt_len, src_len)
+    def extend_te(x, tgt_len, src_len):
+        return te.compute((bsz, 1, tgt_len, src_len), lambda b, _, i, j: te.if_then_else(j < src_len - tgt_len, 0, x[b, _, i, j - (src_len-tgt_len)]), name="concat_te")
+    return nn.emit_te(extend_te, diag_mask, tgt_len, src_len)
 
 
 class LlamaModel(nn.Module):

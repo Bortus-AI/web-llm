@@ -70,7 +70,7 @@ class Conversation:
                     else:
                         ret += role + ":"
             else:
-                ret = self.messages[self.cur][1] + seps[1]
+                ret = seps[1]
                 assert self.cur % 2 == 1
                 for i, (role, message) in enumerate(self.messages[self.cur + 1:]):
                     if message:
