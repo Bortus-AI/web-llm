@@ -49,7 +49,7 @@ class Conversation {
       throw Error("needs to call getLastPromptArray for the first message");
     }
     let ret = [this.seps[this.seps.length - 1]];
-    for (let i = this.messages.length-2; i < this.messages.length; ++i) {
+    for (let i = this.messages.length - 2; i < this.messages.length; ++i) {
       const item = this.messages[i];
       const role = item[0];
       const message = item[1];
@@ -60,7 +60,7 @@ class Conversation {
       }
     }
     return ret;
-    
+
   }
 
   /**
@@ -74,7 +74,7 @@ class Conversation {
     }
     let ret = [this.system + this.seps[0]];
 
-    for (let i = this.messages.length-2; i < this.messages.length; ++i) {
+    for (let i = this.messages.length - 2; i < this.messages.length; ++i) {
       const item = this.messages[i];
       const role = item[0];
       const message = item[1];
@@ -103,12 +103,12 @@ class Conversation {
 function defaultConversation(maxWindowLength = 512) {
   return new Conversation({
     system: "A chat between a curious user and an artificial intelligence assistant. " +
-            "The assistant gives helpful, detailed, and polite answers to the user's questions.",
+      "The assistant gives helpful, detailed, and polite answers to the user's questions.",
     roles: ["USER", "ASSISTANT"],
     maxWindowLength: maxWindowLength,
     messages: [],
     offset: 0,
-    seps:[" ", "</s>"],
+    seps: [" ", "</s>"],
   });
 };
 
@@ -221,7 +221,7 @@ class LLMChatPipeline {
         this.tvm.empty(logits.shape, logits.dtype, this.tvm.cpu())
       );
     } else {
-      if(logits.shape[0] != this.logitsOnCPU.shape[0]) {
+      if (logits.shape[0] != this.logitsOnCPU.shape[0]) {
         throw Error("We expect the size of logits to remain unchanged");
       }
     }
@@ -252,7 +252,7 @@ class LLMChatPipeline {
     for (let i = prompts.length - 1; i > 0; --i) {
       const encoded = this.tokenizer.encodeIds(prompts[i]);
       ctxLength += encoded.length;
-      if (this.kvCacheLength+ctxLength + this.meanGenLength >= this.maxWindowLength) {
+      if (this.kvCacheLength + ctxLength + this.meanGenLength >= this.maxWindowLength) {
         need_shift_window = true;
         break;
       }
@@ -279,7 +279,7 @@ class LLMChatPipeline {
     for (let i = all_prompts.length - 1; i > 0; --i) {
       const encoded = this.tokenizer.encodeIds(all_prompts[i]);
       ctxLength += encoded.length;
-      if (ctxLength + this.meanGenLength >= fill_factor*this.maxWindowLength && i + 2 < all_prompts.length) {
+      if (ctxLength + this.meanGenLength >= fill_factor * this.maxWindowLength && i + 2 < all_prompts.length) {
         break;
       }
       context.unshift(encoded);
@@ -436,12 +436,12 @@ class LLMChatInstance {
     this.logger = console.log;
     this.debugTest = false;
   }
- /**
-   * Initialize TVM
-   * @param wasmUrl URL to wasm source.
-   * @param cacheUrl URL to NDArray cache.
-   * @param logger Custom logger.
-   */
+  /**
+    * Initialize TVM
+    * @param wasmUrl URL to wasm source.
+    * @param cacheUrl URL to NDArray cache.
+    * @param logger Custom logger.
+    */
   async #asyncInitTVM(wasmUrl, cacheUrl) {
     if (this.tvm !== undefined) {
       return;
@@ -473,7 +473,7 @@ class LLMChatInstance {
         this.reset();
         throw Error("This browser env do not support WebGPU");
       }
-    } catch(err) {
+    } catch (err) {
       this.appendMessage("error", "Find an error initializing the WebGPU device " + err.toString());
       console.log(err.stack);
       this.reset();
@@ -522,7 +522,7 @@ class LLMChatInstance {
     // initialize UX and tokenizer
     const tokenizer = await tvmjsGlobalEnv.sentencePieceProcessor(this.config.tokenizer);
     this.pipeline = this.tvm.withNewScope(() => {
-      return new LLMChatPipeline(this.tvm, tokenizer,  this.tvm.cacheMetadata, this.config);
+      return new LLMChatPipeline(this.tvm, tokenizer, this.tvm.cacheMetadata, this.config);
     });
     await this.pipeline.asyncLoadWebGPUPiplines();
     this.updateLastMessage("init", "All initialization finished.");
@@ -599,7 +599,7 @@ class LLMChatInstance {
 
     try {
       await this.asyncInit();
-    } catch(err) {
+    } catch (err) {
       this.appendMessage("error", "Init error, " + err.toString());
       console.log(err.stack);
       this.reset();
