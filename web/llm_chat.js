@@ -279,7 +279,7 @@ class LLMChatPipeline {
     for (let i = all_prompts.length - 1; i > 0; --i) {
       const encoded = this.tokenizer.encodeIds(all_prompts[i]);
       ctxLength += encoded.length;
-      if (ctxLength + this.meanGenLength >= fill_factor * this.maxWindowLength && i + 2 < all_prompts.length) {
+      if (ctxLength >= fill_factor * this.maxWindowLength && i + 2 < all_prompts.length) {
         break;
       }
       context.unshift(encoded);
